@@ -31,6 +31,7 @@ async function helpCommand(sock, chatId, channelLink) {
 ║ ➤ .groupinfo
 ║ ➤ .staff or .admins 
 ║ ➤ .vv
+║ ➤ .pair or .rent
 ╚═══════════════════╝
 
 ╔═══════════════════╗
@@ -38,6 +39,7 @@ async function helpCommand(sock, chatId, channelLink) {
 ║ ➤ .blur <image>
 ║ ➤ .simage <reply to sticker>
 ║ ➤ .sticker <reply to image>
+║ ➤ .tgsticker <Link>
 ║ ➤ .meme
 ║ ➤ .take <packname> 
 ║ ➤ .emojimix <emj1>+<emj2>
@@ -68,6 +70,7 @@ async function helpCommand(sock, chatId, channelLink) {
 ║ ➤ .mode
 ║ ➤ .autostatus
 ║ ➤ .clearsession
+║ ➤ .antidelete
 ╚═══════════════════╝
 
 ╔═══════════════════╗
@@ -98,6 +101,30 @@ async function helpCommand(sock, chatId, channelLink) {
 ║ ➤ .character @user
 ║ ➤ .wasted @user
 ║ ➤ .ship @user
+║ ➤ .simp @user
+║ ➤ .stupid @user [text]
+╚═══════════════════╝
+
+╔═══════════════════╗
+🎯 *Textmaker*:
+║ ➤ .metallic <text>
+║ ➤ .ice <text>
+║ ➤ .snow <text>
+║ ➤ .impressive <text>
+║ ➤ .matrix <text>
+║ ➤ .light <text>
+║ ➤ .neon <text>
+║ ➤ .devil <text>
+║ ➤ .purple <text>
+║ ➤ .thunder <text>
+║ ➤ .leaves <text>
+║ ➤ .1917 <text>
+║ ➤ .arena <text>
+║ ➤ .hacker <text>
+║ ➤ .sand <text>
+║ ➤ .blackpink <text>
+║ ➤ .glitch <text>
+║ ➤ .fire <text>
 ╚═══════════════════╝
 
 ╔═══════════════════╗

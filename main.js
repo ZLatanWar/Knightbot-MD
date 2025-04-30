@@ -1,11 +1,14 @@
 const settings = require('./settings');
 require('./config.js');
 const { isBanned } = require('./lib/isBanned');
-const yts = require('youtube-yts');
+const yts = require('yt-search');
 const { fetchBuffer } = require('./lib/myfunc');
-const ytdl = require('./lib/ytdl2');
 const fs = require('fs');
 const fetch = require('node-fetch');
+const ytdl = require('ytdl-core');
+const path = require('path');
+const axios = require('axios');
+const ffmpeg = require('fluent-ffmpeg');
 
 // Command imports
 const tagAllCommand = require('./commands/tagall');
@@ -69,6 +72,12 @@ const { handleDemotionEvent } = require('./commands/demote');
 const viewOnceCommand = require('./commands/viewonce');
 const clearSessionCommand = require('./commands/clearsession');
 const { autoStatusCommand, handleStatusUpdate } = require('./commands/autostatus');
+const { simpCommand } = require('./commands/simp');
+const { stupidCommand } = require('./commands/stupid');
+const pairCommand = require('./commands/pair');
+const stickerTelegramCommand = require('./commands/stickertelegram');
+const textmakerCommand = require('./commands/textmaker');
+const { handleAntideleteCommand, handleMessageRevocation, storeMessage } = require('./commands/antidelete');
 
 // Global settings
 global.packname = settings.packname;
@@ -96,6 +105,17 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         const message = messages[0];
         if (!message?.message) return;
+
+        // Store message for antidelete feature
+        if (message.message) {
+            storeMessage(message);
+        }
+
+        // Handle message revocation
+        if (message.message?.protocolMessage?.type === 0) {
+            await handleMessageRevocation(sock, message);
+            return;
+        }
 
         const chatId = message.key.remoteJid;
         const senderId = message.key.participant || message.key.remoteJid;
@@ -128,14 +148,14 @@ async function handleMessages(sock, messageUpdate, printLog) {
             return;
         }
 
-        // Basic message response in private chat
+      /*  // Basic message response in private chat
         if (!isGroup && (userMessage === 'hi' || userMessage === 'hello' || userMessage === 'bot' || userMessage === 'hlo' || userMessage === 'hey' || userMessage === 'bro')) {
             await sock.sendMessage(chatId, {
                 text: 'Hi, How can I help you?\nYou can use .menu for more info and commands.',
                 ...channelInfo
             });
             return;
-        }
+        } */
 
         if (!message.key.fromMe) incrementMessageCount(chatId, senderId);
 
@@ -413,6 +433,17 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 const songTitle = userMessage.split(' ').slice(1).join(' ');
                 await lyricsCommand(sock, chatId, songTitle);
                 break;
+            case userMessage.startsWith('.simp'):
+                const quotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+                const mentionedJid = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+                await simpCommand(sock, chatId, quotedMsg, mentionedJid, senderId);
+                break;
+            case userMessage.startsWith('.stupid') || userMessage.startsWith('.itssostupid') || userMessage.startsWith('.iss'):
+                const stupidQuotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+                const stupidMentionedJid = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+                const stupidArgs = userMessage.split(' ').slice(1);
+                await stupidCommand(sock, chatId, stupidQuotedMsg, stupidMentionedJid, senderId, stupidArgs);
+                break;
             case userMessage === '.dare':
                 await dareCommand(sock, chatId);
                 break;
@@ -558,20 +589,24 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage.startsWith('.emojimix') || userMessage.startsWith('.emix'):
                 await emojimixCommand(sock, chatId, message);
                 break;
-            case userMessage.startsWith('.play') || userMessage.startsWith('.song'):
+            case userMessage.startsWith('.tg') || userMessage.startsWith('.stickertelegram') || userMessage.startsWith('.tgsticker') || userMessage.startsWith('.telesticker'):
+                await stickerTelegramCommand(sock, chatId, message);
+                break;
+            case userMessage.startsWith('.play') || userMessage.startsWith('.song') || userMessage.startsWith('.mp3') || userMessage.startsWith('.ytmp3') || userMessage.startsWith('.yts'):
                 try {
                     const text = userMessage.split(' ').slice(1).join(' ');
                     if (!text) {
                         await sock.sendMessage(chatId, { 
-                            text: `❌ Please provide a search term!\n\nExample: .play harleys in hawaii`,
+                            text: `✅ Please specify the song you want to download!\n\nExample: .play Sia Unstoppable`,
                             ...channelInfo
                         });
                         return;
                     }
 
-                    // Search for the video
+                 
+
                     const search = await yts(text);
-                    if (!search.videos.length) {
+                    if (!search.all || search.all.length === 0) {
                         await sock.sendMessage(chatId, { 
                             text: '❌ No results found!',
                             ...channelInfo
@@ -579,48 +614,56 @@ async function handleMessages(sock, messageUpdate, printLog) {
                         return;
                     }
 
-                    const video = search.videos[0];
-                    
-                    // Send processing message
-                    await sock.sendMessage(chatId, { 
-                        text: `🎵 Downloading: ${video.title}\n⏳ Please wait...`,
-                        ...channelInfo
-                    });
+                    const video = search.all[0];
+                    const link = video.url;
 
-                    // Download and process audio
-                    const audioData = await ytdl.mp3(video.url);
+                    // Generate the API URL
+                    const apiUrl = `https://apis-keith.vercel.app/download/dlmp3?url=${link}`;
 
-                    // Get thumbnail
-                    const response = await fetch(video.thumbnail);
-                    const thumbBuffer = await response.buffer();
-
-                    // Send the audio
-                    await sock.sendMessage(chatId, {
-                        audio: fs.readFileSync(audioData.path),
-                        mimetype: 'audio/mp4',
-                        fileName: `${video.title}.mp3`,
-                        contextInfo: {
-                            externalAdReply: {
-                                title: video.title,
-                                body: global.botname,
-                                thumbnail: thumbBuffer,
-                                mediaType: 2,
-                                mediaUrl: video.url,
-                            }
-                        }
-                    });
-
-                    // Cleanup
-                    try {
-                        fs.unlinkSync(audioData.path);
-                    } catch (err) {
-                        console.error('Error cleaning up audio file:', err);
+                    // Fetch the audio data from the API
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) {
+                        await sock.sendMessage(chatId, { 
+                            text: '❌ Failed to fetch data from the API. Please try again.',
+                            ...channelInfo
+                        });
+                        return;
                     }
 
+                    const data = await response.json();
+
+                    if (data.status && data.result) {
+                        const { title, downloadUrl, format, quality } = data.result;
+                        const thumbnail = video.thumbnail;
+
+                        // Send a message with song details and thumbnail
+                        await sock.sendMessage(chatId, {
+                            image: { url: thumbnail },
+                            caption: `
+╭═════════════════⊷
+║ *Title*: ${title}
+╰═════════════════⊷
+*🎵 Downloading song...*`,
+                            ...channelInfo
+                        });
+
+                        // Send the audio file
+                        await sock.sendMessage(chatId, {
+                            audio: { url: downloadUrl },
+                            mimetype: "audio/mp4"
+                        });
+
+                    
+
+                    } else {
+                        await sock.sendMessage(chatId, { 
+                            text: '❌ Unable to fetch the song. Please try again later.',
+                            ...channelInfo
+                        });
+                    }
                 } catch (error) {
-                    console.error('Error in play command:', error);
                     await sock.sendMessage(chatId, { 
-                        text: '❌ Failed to play audio! Try again later.',
+                        text: `❌ An error occurred: ${error.message}`,
                         ...channelInfo
                     });
                 }
@@ -634,6 +677,76 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage.startsWith('.autostatus'):
                 const autoStatusArgs = userMessage.split(' ').slice(1);
                 await autoStatusCommand(sock, chatId, senderId, autoStatusArgs);
+                break;
+            case userMessage.startsWith('.simp'):
+                await simpCommand(sock, chatId, message);
+                break;
+            case userMessage.startsWith('.pair') || userMessage.startsWith('.rent'): {
+                const q = userMessage.split(' ').slice(1).join(' ');
+                await pairCommand(sock, chatId, message, q);
+                break;
+            }
+            case userMessage.startsWith('.metallic'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'metallic');
+                break;
+            case userMessage.startsWith('.ice'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'ice');
+                break;
+            case userMessage.startsWith('.snow'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'snow');
+                break;
+            case userMessage.startsWith('.impressive'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'impressive');
+                break;
+            case userMessage.startsWith('.matrix'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'matrix');
+                break;
+            case userMessage.startsWith('.light'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'light');
+                break;
+            case userMessage.startsWith('.neon'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'neon');
+                break;
+            case userMessage.startsWith('.devil'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'devil');
+                break;
+            case userMessage.startsWith('.purple'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'purple');
+                break;
+            case userMessage.startsWith('.thunder'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'thunder');
+                break;
+            case userMessage.startsWith('.leaves'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'leaves');
+                break;
+            case userMessage.startsWith('.1917'):
+                await textmakerCommand(sock, chatId, message, userMessage, '1917');
+                break;
+            case userMessage.startsWith('.arena'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'arena');
+                break;
+            case userMessage.startsWith('.hacker'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'hacker');
+                break;
+            case userMessage.startsWith('.sand'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'sand');
+                break;
+            case userMessage.startsWith('.blackpink'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'blackpink');
+                break;
+            case userMessage.startsWith('.glitch'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'glitch');
+                break;
+            case userMessage.startsWith('.fire'):
+                await textmakerCommand(sock, chatId, message, userMessage, 'fire');
+                break;
+            case userMessage.startsWith('.antidelete'):
+                const antideleteMatch = userMessage.slice(11).trim();
+                await handleAntideleteCommand(sock, chatId, message, antideleteMatch);
+                break;
+            case userMessage === '.surrender':
+                // Handle surrender command for tictactoe game
+                await handleTicTacToeMove(sock, chatId, senderId, 'surrender');
                 break;
             default:
                 if (isGroup) {
@@ -663,12 +776,12 @@ module.exports = {
     handleMessages,
     handleGroupParticipantUpdate: async (sock, update) => {
         const { id, participants, action, author } = update;
-        console.log('Group Update in Main:', {
+      /*  console.log('Group Update in Main:', {
             id,
             participants,
             action,
             author
-        });  // Add this debug log
+        }); */ // Add this debug log
         
         if (action === 'promote') {
             await handlePromotionEvent(sock, id, participants, author);
